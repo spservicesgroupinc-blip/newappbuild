@@ -287,44 +287,25 @@ export interface Database {
 // ============================================================
 
 /**
- * Login with username and password
+ * Login with email and password
+ * Uses RPC login for database-authenticated users
  */
-export const loginUser = async (username: string, password: string): Promise<UserSession | null> => {
+export const loginUser = async (email: string, password: string): Promise<UserSession | null> => {
   try {
-    // Try Supabase Auth first (for users created via auth.signup)
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: username, // Use username as email for Supabase Auth
-      password
-    });
-
-    if (!authError && authData.user) {
-      // Get user record from public.users
-      const { data: userData } = await supabase
-        .from('users')
-        .select('*')
-        .eq('auth_user_id', authData.user.id)
-        .single();
-
-      if (userData) {
-        return {
-          username: userData.username,
-          companyName: userData.company_name,
-          spreadsheetId: userData.spreadsheet_id || '',
-          folderId: userData.folder_id || '',
-          role: userData.role,
-          token: authData.session?.access_token
-        };
-      }
-    }
-
-    // Fallback to RPC login (for legacy migrated users)
+    // Try RPC login first (for users created via rpc_signup)
     const { data, error } = await supabase.rpc('rpc_login', {
-      p_username: username,
+      p_username: email,
       p_password: password
     });
 
-    if (error || !data || !(data as Record<string, unknown>).success) {
-      throw new Error((data as Record<string, unknown>)?.message as string || 'Login failed');
+    if (error) {
+      console.error('RPC login error:', error);
+      throw new Error(error.message || 'Login failed');
+    }
+
+    if (!data || !(data as Record<string, unknown>).success) {
+      const message = (data as Record<string, unknown>)?.message as string || 'Login failed';
+      throw new Error(message);
     }
 
     const result = data as Record<string, unknown>;
@@ -345,67 +326,38 @@ export const loginUser = async (username: string, password: string): Promise<Use
 };
 
 /**
- * Signup with username, password, and company name
+ * Signup with email, password, and company name
+ * Uses RPC signup for immediate access (bypasses email confirmation)
  */
 export const signupUser = async (
-  username: string,
+  email: string,
   password: string,
   companyName: string,
-  email?: string
+  username?: string
 ): Promise<UserSession | null> => {
   try {
-    // Try Supabase Auth signup first
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: email || username,
-      password,
-      options: {
-        data: {
-          username,
-          company_name: companyName,
-          role: 'admin'
-        }
-      }
-    });
-
-    if (!authError && authData.user) {
-      // User will be created via trigger on auth.users
-      // Wait a moment for trigger to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      // Get user record
-      const { data: userData } = await supabase
-        .from('users')
-        .select('*')
-        .eq('auth_user_id', authData.user.id)
-        .single();
-
-      if (userData) {
-        return {
-          username: userData.username,
-          companyName: userData.company_name,
-          spreadsheetId: userData.spreadsheet_id || '',
-          folderId: userData.folder_id || '',
-          role: userData.role,
-          token: authData.session?.access_token
-        };
-      }
-    }
-
-    // Fallback to RPC signup
+    // Use RPC signup - creates user directly in database
     const { data, error } = await supabase.rpc('rpc_signup', {
-      p_username: username,
+      p_username: email,
       p_password: password,
       p_company_name: companyName,
-      p_email: email
+      p_email: username || email
     });
 
-    if (error || !data || !(data as Record<string, unknown>).success) {
-      throw new Error((data as Record<string, unknown>)?.message as string || 'Signup failed');
+    if (error) {
+      console.error('RPC signup error:', error);
+      throw new Error(error.message || 'Signup failed');
+    }
+
+    if (!data || !(data as Record<string, unknown>).success) {
+      const message = (data as Record<string, unknown>)?.message as string || 'Signup failed';
+      throw new Error(message);
     }
 
     const result = data as Record<string, unknown>;
     const userData = result.data as Record<string, unknown>;
 
+    // Return session with RPC-generated token
     return {
       username: userData.username as string,
       companyName: userData.companyName as string,
@@ -459,6 +411,32 @@ export const logoutUser = async (): Promise<void> => {
 };
 
 /**
+ * Request password reset for user
+ */
+export const resetPassword = async (email: string): Promise<void> => {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/#access_token`
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to send password reset email');
+  }
+};
+
+/**
+ * Update user password
+ */
+export const updatePassword = async (newPassword: string): Promise<void> => {
+  const { error } = await supabase.auth.updateUser({
+    password: newPassword
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to update password');
+  }
+};
+
+/**
  * Get current session
  */
 export const getCurrentSession = async (): Promise<UserSession | null> => {
@@ -486,22 +464,6 @@ export const getCurrentSession = async (): Promise<UserSession | null> => {
     role: userData.role,
     token: session.access_token
   };
-};
-
-/**
- * Update password
- */
-export const updatePassword = async (userId: string, newPassword: string): Promise<boolean> => {
-  const { data, error } = await supabase.rpc('rpc_update_password', {
-    p_user_id: userId,
-    p_new_password: newPassword
-  });
-
-  if (error || !data || !(data as Record<string, unknown>).success) {
-    throw new Error('Failed to update password');
-  }
-
-  return true;
 };
 
 // ============================================================
