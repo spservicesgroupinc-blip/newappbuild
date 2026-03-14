@@ -8,7 +8,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "supabase:gen-types": "npx supabase gen types typescript --project-id your-project-id > services/supabase-types.ts"
+    "supabase:gen-types": "npx supabase gen types typescript --project-id your-project-id > services/supabase-types.ts",
+    "vercel:build": "npm run build",
+    "vercel:dev": "vite"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

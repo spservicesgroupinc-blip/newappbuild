@@ -22,3 +22,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Vercel
+.vercel
+.vercelignore
+
+# Environment files (keep .env.example only)
+.env
+.env.*
+!.env.example
+!.env.local.example

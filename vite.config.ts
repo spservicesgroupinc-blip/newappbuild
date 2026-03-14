@@ -12,11 +12,32 @@ export default defineConfig(({ mode }) => {
       plugins: [react()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+        // Vercel environment variables
+        'process.env.VERCEL': JSON.stringify(env.VERCEL),
+        'process.env.VERCEL_ENV': JSON.stringify(env.VERCEL_ENV),
+        'process.env.VERCEL_URL': JSON.stringify(env.VERCEL_URL)
       },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, '.'),
+        }
+      },
+      // Vercel build optimizations
+      build: {
+        outDir: 'dist',
+        sourcemap: mode === 'production',
+        minify: 'esbuild',
+        target: 'esnext',
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              vendor: ['react', 'react-dom'],
+              supabase: ['@supabase/supabase-js'],
+              pdf: ['jspdf', 'jspdf-autotable'],
+              icons: ['lucide-react']
+            }
+          }
         }
       }
     };
