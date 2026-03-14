@@ -283,42 +283,49 @@ export interface Database {
 }
 
 // ============================================================
-// AUTHENTICATION SERVICES
+// AUTHENTICATION SERVICES (Using Supabase Auth)
 // ============================================================
 
 /**
- * Login with email and password
- * Uses RPC login for database-authenticated users
+ * Login with email and password using Supabase Auth
  */
 export const loginUser = async (email: string, password: string): Promise<UserSession | null> => {
   try {
-    // Try RPC login first (for users created via rpc_signup)
-    const { data, error } = await supabase.rpc('rpc_login', {
-      p_username: email,
-      p_password: password
+    // Use Supabase Auth for authentication
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password
     });
 
-    if (error) {
-      console.error('RPC login error:', error);
-      throw new Error(error.message || 'Login failed');
+    if (error || !data.user) {
+      console.error('Supabase Auth login error:', error);
+      throw new Error(error?.message || 'Login failed');
     }
 
-    if (!data || !(data as Record<string, unknown>).success) {
-      const message = (data as Record<string, unknown>)?.message as string || 'Login failed';
-      throw new Error(message);
+    // Fetch user data from public.users table
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('auth_user_id', data.user.id)
+      .single();
+
+    if (userError || !userData) {
+      throw new Error('User profile not found');
     }
 
-    const result = data as Record<string, unknown>;
-    const userData = result.data as Record<string, unknown>;
-
-    return {
-      username: userData.username as string,
-      companyName: userData.companyName as string,
-      spreadsheetId: (userData.spreadsheetId as string) || '',
-      folderId: (userData.folderId as string) || '',
-      role: (userData.role as 'admin' | 'crew') || 'admin',
-      token: userData.token as string
+    const session: UserSession = {
+      username: userData.username,
+      companyName: userData.company_name,
+      spreadsheetId: userData.spreadsheet_id || '',
+      folderId: userData.folder_id || '',
+      role: userData.role,
+      token: data.session.access_token
     };
+
+    // Save session to localStorage
+    localStorage.setItem('foamProSession', JSON.stringify(session));
+
+    return session;
   } catch (error: unknown) {
     console.error('Login error:', error);
     throw error;
@@ -326,8 +333,7 @@ export const loginUser = async (email: string, password: string): Promise<UserSe
 };
 
 /**
- * Signup with email, password, and company name
- * Uses RPC signup for immediate access (bypasses email confirmation)
+ * Signup with email, password, and company name using Supabase Auth
  */
 export const signupUser = async (
   email: string,
@@ -336,36 +342,96 @@ export const signupUser = async (
   username?: string
 ): Promise<UserSession | null> => {
   try {
-    // Use RPC signup - creates user directly in database
-    const { data, error } = await supabase.rpc('rpc_signup', {
-      p_username: email,
-      p_password: password,
-      p_company_name: companyName,
-      p_email: username || email
+    // Use Supabase Auth for signup
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          username: username || email,
+          company_name: companyName,
+          role: 'admin'
+        }
+      }
     });
 
-    if (error) {
-      console.error('RPC signup error:', error);
-      throw new Error(error.message || 'Signup failed');
+    if (error || !data.user) {
+      console.error('Supabase Auth signup error:', error);
+      throw new Error(error?.message || 'Signup failed');
     }
 
-    if (!data || !(data as Record<string, unknown>).success) {
-      const message = (data as Record<string, unknown>)?.message as string || 'Signup failed';
-      throw new Error(message);
+    // The handle_new_user trigger should create the public.users record
+    // Wait a moment for the trigger to complete
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Fetch the newly created user data
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('auth_user_id', data.user.id)
+      .single();
+
+    if (userError || !userData) {
+      // If trigger didn't create the user, create it manually
+      const crewCode = String(Math.floor(1000 + Math.random() * 9000));
+      
+      const { data: manualUser, error: insertError } = await supabase
+        .from('users')
+        .insert({
+          auth_user_id: data.user.id,
+          username: username || email,
+          company_name: companyName,
+          email: email,
+          role: 'admin',
+          crew_code: crewCode
+        })
+        .select()
+        .single();
+
+      if (insertError || !manualUser) {
+        throw new Error('Failed to create user profile');
+      }
+
+      // Create default app_settings
+      await supabase.from('app_settings').insert({ user_id: manualUser.id });
+      
+      // Create default warehouse_counts
+      await supabase.from('warehouse_counts').insert({ user_id: manualUser.id });
+      
+      // Create default lifetime_usage
+      await supabase.from('lifetime_usage').insert({ user_id: manualUser.id });
+      
+      // Create company profile
+      await supabase.from('company_profiles').insert({ 
+        user_id: manualUser.id, 
+        company_name: companyName,
+        crew_access_pin: crewCode
+      });
+
+      const session: UserSession = {
+        username: manualUser.username,
+        companyName: manualUser.company_name,
+        spreadsheetId: '',
+        folderId: '',
+        role: 'admin',
+        token: data.session?.access_token || ''
+      };
+
+      localStorage.setItem('foamProSession', JSON.stringify(session));
+      return session;
     }
 
-    const result = data as Record<string, unknown>;
-    const userData = result.data as Record<string, unknown>;
-
-    // Return session with RPC-generated token
-    return {
-      username: userData.username as string,
-      companyName: userData.companyName as string,
-      spreadsheetId: (userData.spreadsheetId as string) || '',
-      folderId: (userData.folderId as string) || '',
-      role: (userData.role as 'admin' | 'crew') || 'admin',
-      token: userData.token as string
+    const session: UserSession = {
+      username: userData.username,
+      companyName: userData.company_name,
+      spreadsheetId: userData.spreadsheet_id || '',
+      folderId: userData.folder_id || '',
+      role: userData.role,
+      token: data.session?.access_token || ''
     };
+
+    localStorage.setItem('foamProSession', JSON.stringify(session));
+    return session;
   } catch (error: unknown) {
     console.error('Signup error:', error);
     throw error;
@@ -373,30 +439,34 @@ export const signupUser = async (
 };
 
 /**
- * Crew login with PIN
+ * Crew login with PIN - looks up user by crew_code
  */
 export const loginCrew = async (username: string, pin: string): Promise<UserSession | null> => {
   try {
-    const { data, error } = await supabase.rpc('rpc_crew_login', {
-      p_username: username,
-      p_pin: pin
-    });
+    // Find user by crew_code (PIN)
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('crew_code', pin)
+      .single();
 
-    if (error || !data || !(data as Record<string, unknown>).success) {
-      throw new Error((data as Record<string, unknown>)?.message as string || 'Crew login failed');
+    if (userError || !userData) {
+      throw new Error('Invalid crew code');
     }
 
-    const result = data as Record<string, unknown>;
-    const userData = result.data as Record<string, unknown>;
-
-    return {
-      username: userData.username as string,
-      companyName: userData.companyName as string,
-      spreadsheetId: (userData.spreadsheetId as string) || '',
-      folderId: (userData.folderId as string) || '',
-      role: (userData.role as 'admin' | 'crew') || 'crew',
-      token: userData.token as string
+    // For crew members, we create a session without Supabase Auth
+    // This is a lightweight auth for temporary/field access
+    const session: UserSession = {
+      username: userData.username,
+      companyName: userData.company_name,
+      spreadsheetId: userData.spreadsheet_id || '',
+      folderId: userData.folder_id || '',
+      role: 'crew',
+      token: `crew_${userData.id}_${Date.now()}`
     };
+
+    localStorage.setItem('foamProSession', JSON.stringify(session));
+    return session;
   } catch (error: unknown) {
     console.error('Crew login error:', error);
     throw error;
@@ -408,6 +478,7 @@ export const loginCrew = async (username: string, pin: string): Promise<UserSess
  */
 export const logoutUser = async (): Promise<void> => {
   await supabase.auth.signOut();
+  localStorage.removeItem('foamProSession');
 };
 
 /**
@@ -437,12 +508,21 @@ export const updatePassword = async (newPassword: string): Promise<void> => {
 };
 
 /**
- * Get current session
+ * Get current session from Supabase Auth
  */
 export const getCurrentSession = async (): Promise<UserSession | null> => {
   const { data: { session } } = await supabase.auth.getSession();
 
   if (!session?.user) {
+    // Try to restore from localStorage
+    const savedSession = localStorage.getItem('foamProSession');
+    if (savedSession) {
+      try {
+        return JSON.parse(savedSession);
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 

@@ -1,0 +1,1 @@
+SELECT current_setting('app.secret_salt', true) as secret_salt;

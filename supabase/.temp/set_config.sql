@@ -1,0 +1,1 @@
+SELECT set_config('app.secret_salt', 'rfe_foam_pro_salt_' || substr(md5(random()::text || now()::text), 1, 12), false);
