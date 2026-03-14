@@ -1,0 +1,55 @@
+# Vercel Environment Variables for RFE Foam Pro
+# Copy these values into your Vercel project's Environment Variables
+# Go to: https://vercel.com/dashboard → Your Project → Settings → Environment Variables
+
+# ============================================================
+# REQUIRED - Supabase Configuration
+# ============================================================
+
+VITE_SUPABASE_URL=https://yjxxisvpcorbgreqkofc.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlqeHhpc3ZwY29yYmdyZXFrb2ZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0NzU1NDQsImV4cCI6MjA4OTA1MTU0NH0.icUrnN9_GZNN3rJ4riLC7jOwltHu8gUK8MseD2MGscM
+
+# ============================================================
+# OPTIONAL - Feature Flags (defaults shown)
+# ============================================================
+
+VITE_ENABLE_CREW_LOGIN=true
+VITE_ENABLE_TRIAL_MODE=true
+VITE_TRIAL_PERIOD_DAYS=14
+
+# ============================================================
+# OPTIONAL - App Settings
+# ============================================================
+
+VITE_APP_NAME=RFE Foam Pro
+VITE_DEBUG=false
+
+# ============================================================
+# OPTIONAL - Google Sheets Integration (if using)
+# ============================================================
+
+# GOOGLE_API_KEY=your-google-api-key
+# GOOGLE_CLIENT_ID=your-google-client-id
+# GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+# ============================================================
+# HOW TO FIND YOUR SUPABASE CREDENTIALS
+# ============================================================
+# 1. Go to https://app.supabase.com
+# 2. Select your project
+# 3. Click Settings (gear icon) → API
+# 4. Copy:
+#    - Project URL → VITE_SUPABASE_URL
+#    - anon/public key → VITE_SUPABASE_ANON_KEY
+#
+# ⚠️ DO NOT use the service_role_key in client-side code!
+
+# ============================================================
+# AFTER ADDING TO VERCEL
+# ============================================================
+# 1. Add variables to Vercel (Production, Preview, and Development)
+# 2. Redeploy your project
+# 3. Update Supabase Authentication URLs:
+#    - Add your Vercel URL to Site URL
+#    - Add https://*.vercel.app/* to Redirect URLs
+# 4. Test authentication and all features

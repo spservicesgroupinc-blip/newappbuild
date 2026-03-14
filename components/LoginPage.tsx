@@ -60,12 +60,12 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
     try {
       if (activeTab === 'crew') {
         // Crew Login
-        if (!formData.username || !formData.crewPin) {
+        if (!username || !formData.crewPin) {
           setError('Please enter company username and crew PIN');
           setIsLoading(false);
           return;
         }
-        const session = await loginCrew(formData.username, formData.crewPin);
+        const session = await loginCrew(username, formData.crewPin);
         if (session) {
           onLoginSuccess(session);
         } else {
@@ -100,10 +100,10 @@ const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, installPrompt, on
           }
           const session = await signupUser(formData.email, formData.password, formData.companyName, formData.email);
           if (session) {
-            setSuccessMessage('Account created! Please check your email to verify your account.');
             onLoginSuccess(session);
           } else {
-            setError('Signup failed. Email may already be registered.');
+            // null means email confirmation is required (not an error)
+            setSuccessMessage('Account created! Please check your email to verify your account.');
           }
         } else {
           // Login

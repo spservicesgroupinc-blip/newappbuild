@@ -18,7 +18,6 @@ import { syncUp } from '../services/supabase';
 import { logoutUser } from '../services/supabase';
 
 import LoginPage from './LoginPage';
-import { LandingPage } from './LandingPage';
 import { Layout } from './Layout';
 import { Calculator } from './Calculator';
 import { Dashboard } from './Dashboard';
@@ -296,10 +295,6 @@ const SprayFoamCalculator: React.FC = () => {
           dispatch({ type: 'SET_VIEW', payload: 'invoice_stage' });
       }
   };
-
-  if (!ui.hasTrialAccess && !session) {
-      return <LandingPage onEnterApp={() => dispatch({ type: 'SET_TRIAL_ACCESS', payload: true })} />;
-  }
 
   if (!session) {
       return <LoginPage 

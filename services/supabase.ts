@@ -291,16 +291,32 @@ export interface Database {
  */
 export const loginUser = async (email: string, password: string): Promise<UserSession | null> => {
   try {
+    console.log('[Login] Attempting login for:', email);
+
     // Use Supabase Auth for authentication
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
     });
 
-    if (error || !data.user) {
-      console.error('Supabase Auth login error:', error);
-      throw new Error(error?.message || 'Login failed');
+    if (error) {
+      console.error('[Login] Supabase Auth error:', error);
+      // Handle common errors
+      if (error.message.includes('Invalid login credentials')) {
+        throw new Error('Invalid email or password');
+      }
+      if (error.message.includes('Email not confirmed')) {
+        throw new Error('Please verify your email address');
+      }
+      throw new Error(error.message || 'Login failed');
     }
+
+    if (!data.user) {
+      console.error('[Login] No user data returned');
+      throw new Error('Login failed - no user found');
+    }
+
+    console.log('[Login] Auth successful, user ID:', data.user.id);
 
     // Fetch user data from public.users table
     const { data: userData, error: userError } = await supabase
@@ -309,9 +325,17 @@ export const loginUser = async (email: string, password: string): Promise<UserSe
       .eq('auth_user_id', data.user.id)
       .single();
 
-    if (userError || !userData) {
+    if (userError) {
+      console.error('[Login] Error fetching user profile:', userError);
+      throw new Error('User profile not found. Please contact support.');
+    }
+
+    if (!userData) {
+      console.error('[Login] User profile not found for auth user:', data.user.id);
       throw new Error('User profile not found');
     }
+
+    console.log('[Login] User profile found:', userData.username);
 
     const session: UserSession = {
       username: userData.username,
@@ -324,11 +348,15 @@ export const loginUser = async (email: string, password: string): Promise<UserSe
 
     // Save session to localStorage
     localStorage.setItem('foamProSession', JSON.stringify(session));
+    console.log('[Login] Login successful');
 
     return session;
   } catch (error: unknown) {
-    console.error('Login error:', error);
-    throw error;
+    console.error('[Login] Final error:', error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('An unexpected error occurred during login');
   }
 };
 
@@ -342,6 +370,8 @@ export const signupUser = async (
   username?: string
 ): Promise<UserSession | null> => {
   try {
+    console.log('[Signup] Starting signup process for:', email);
+
     // Use Supabase Auth for signup
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -351,30 +381,48 @@ export const signupUser = async (
           username: username || email,
           company_name: companyName,
           role: 'admin'
-        }
+        },
+        // Don't require email confirmation for immediate access
+        emailRedirectTo: window.location.origin
       }
     });
 
-    if (error || !data.user) {
-      console.error('Supabase Auth signup error:', error);
-      throw new Error(error?.message || 'Signup failed');
+    if (error) {
+      console.error('[Signup] Supabase Auth error:', error);
+      throw new Error(error.message || 'Signup failed');
     }
 
-    // The handle_new_user trigger should create the public.users record
-    // Wait a moment for the trigger to complete
-    await new Promise(resolve => setTimeout(resolve, 500));
+    if (!data.user) {
+      console.error('[Signup] No user data returned');
+      throw new Error('Signup failed - no user created');
+    }
 
-    // Fetch the newly created user data
+    console.log('[Signup] User created in auth:', data.user.id);
+
+    // Email confirmation required — session is null until user confirms email
+    if (!data.session) {
+      return null;
+    }
+
+    // Wait for the trigger to create the public.users record
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Fetch the newly created user data from public.users
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('*')
       .eq('auth_user_id', data.user.id)
       .single();
 
-    if (userError || !userData) {
-      // If trigger didn't create the user, create it manually
+    if (userError) {
+      console.error('[Signup] Error fetching user from public.users:', userError);
+    }
+
+    if (!userData) {
+      // Trigger didn't create the user - create manually
+      console.log('[Signup] Creating user manually in public.users');
       const crewCode = String(Math.floor(1000 + Math.random() * 9000));
-      
+
       const { data: manualUser, error: insertError } = await supabase
         .from('users')
         .insert({
@@ -388,25 +436,42 @@ export const signupUser = async (
         .select()
         .single();
 
-      if (insertError || !manualUser) {
-        throw new Error('Failed to create user profile');
+      if (insertError) {
+        console.error('[Signup] Manual insert error:', insertError);
+        throw new Error('Failed to create user profile: ' + insertError.message);
       }
 
+      if (!manualUser) {
+        throw new Error('Failed to create user profile - no data returned');
+      }
+
+      console.log('[Signup] Manual user created:', manualUser.id);
+
       // Create default app_settings
-      await supabase.from('app_settings').insert({ user_id: manualUser.id });
-      
+      const { error: settingsError } = await supabase.from('app_settings').insert({
+        user_id: manualUser.id
+      });
+      if (settingsError) console.error('[Signup] app_settings error:', settingsError);
+
       // Create default warehouse_counts
-      await supabase.from('warehouse_counts').insert({ user_id: manualUser.id });
-      
+      const { error: warehouseError } = await supabase.from('warehouse_counts').insert({
+        user_id: manualUser.id
+      });
+      if (warehouseError) console.error('[Signup] warehouse_counts error:', warehouseError);
+
       // Create default lifetime_usage
-      await supabase.from('lifetime_usage').insert({ user_id: manualUser.id });
-      
+      const { error: usageError } = await supabase.from('lifetime_usage').insert({
+        user_id: manualUser.id
+      });
+      if (usageError) console.error('[Signup] lifetime_usage error:', usageError);
+
       // Create company profile
-      await supabase.from('company_profiles').insert({ 
-        user_id: manualUser.id, 
+      const { error: profileError } = await supabase.from('company_profiles').insert({
+        user_id: manualUser.id,
         company_name: companyName,
         crew_access_pin: crewCode
       });
+      if (profileError) console.error('[Signup] company_profiles error:', profileError);
 
       const session: UserSession = {
         username: manualUser.username,
@@ -418,8 +483,11 @@ export const signupUser = async (
       };
 
       localStorage.setItem('foamProSession', JSON.stringify(session));
+      console.log('[Signup] Session created for manual user');
       return session;
     }
+
+    console.log('[Signup] User found in public.users:', userData.id);
 
     const session: UserSession = {
       username: userData.username,
@@ -431,10 +499,14 @@ export const signupUser = async (
     };
 
     localStorage.setItem('foamProSession', JSON.stringify(session));
+    console.log('[Signup] Session created for trigger-created user');
     return session;
   } catch (error: unknown) {
-    console.error('Signup error:', error);
-    throw error;
+    console.error('[Signup] Final error:', error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('An unexpected error occurred during signup');
   }
 };
 
